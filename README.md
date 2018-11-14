@@ -1,93 +1,109 @@
-# mir-pybuffer
-[![Build Status](https://travis-ci.org/ShigekiKarita/mir-pybuffer.svg?branch=master)](https://travis-ci.org/ShigekiKarita/mir-pybuffer)
-[![pypi](https://img.shields.io/pypi/v/pybuffer.svg)](https://pypi.org/project/pybuffer)
-[![dub](https://img.shields.io/dub/v/mir-pybuffer.svg)](https://code.dlang.org/packages/mir-pybuffer)
+# mir-pybind
+[![Build Status](https://travis-ci.org/ShigekiKarita/mir-pybind.svg?branch=master)](https://travis-ci.org/ShigekiKarita/mir-pybind)
+[![dub](https://img.shields.io/dub/v/mir-pybind.svg)](https://code.dlang.org/packages/mir-pybind)
 
 
-mir-pybuffer provides simpler communication interface between C/D-language and python ndarrays (e.g., numpy, PIL) in [Buffer Protocol](https://docs.python.org/3/c-api/buffer.html#buffer-protocol).
-
-## installation
-
-``` console
-$ pip install pybuffer
-$ dub fetch mir-pybuffer # for D (mir) extention
-```
-
-for C extention, you do not need anything but `Python.h`.
-you can see a read/write example in [c-bp.c](c-bp.c) and run it by `$ make test-c`.
+Like pybind11 in C++, mir-pybind provides simplest communication interface between D-language (e.g., mir.ndslice) and python (e.g., numpy, PIL) by [Buffer Protocol](https://docs.python.org/3/c-api/buffer.html#buffer-protocol) and PyObject based conversion. Unlike my previous project [mir-pybuffer](https://github.com/ShigekiKarita/mir-pybuffer), this does not need python library because this is pure D project.
 
 ## usage
 
 ### python side
 
-All you need to do is calling C/D dynamic library with `pybuffer.CDLL`.
+All you need is importing D dynamic library. Wrong arguments will raise TypeError, RuntimeError, etc from D library.
 
 ``` python
-import ctypes
 import numpy
-import pybuffer
+import libtest_module # written in D
 
-# ndarrays
+assert libtest_module.__doc__ == "this is D module"
+assert libtest_module.foo(1) == 2.0
+assert libtest_module.baz(1.5) == "1.5"
+
 x = numpy.array([[0, 1, 2], [3, 4, 5]]).astype(numpy.float64)
 y = numpy.array([0, 1, 2]).astype(numpy.float64)
+mem = libtest_module.sum(x, y)
+numpy.testing.assert_allclose(numpy.frombuffer(mem, dtype=numpy.float64), [3, 6, 9])
 
-# load dynamic library written in d or c
-lib = pybuffer.CDLL("./libyour-dub-lib.so")
-err = lib.func1(x, y, ctypes.c_double(2.0))
-assert err == 0
+assert libtest_module.bar(1, 2.0) == (1, ((2.0, 1),))
+print("TEST OK")
 ```
 
 ### D side
 
-currently mir-pybuffer only supports ndslice functions that return void.
-To create dynamic library, you also need to add `"targetType": "dynamicLibrary"` in [dub.json](test/dub.json).
+You need to implement funcitons and register them by `mir.pybind.defModule`.
 
 ``` d
-import mir.ndslice : Slice, Contiguous;
-// NOTE: DO NOT import pybuffer without ": pybuffer, MixinPyBufferWrappers"
-// because it fails to generate wrappers.
-import pybuffer : pybuffer, MixinPyBufferWrappers;
+import mir.ndslice;
+import mir.pybind : def, defModule;
 
-@pybuffer
-void func1(Slice!(double*, 2) mat, Slice!(double*, 1) vec, double a) {
-  mat[0][] += vec;
-  vec[] *= a;
+double foo(long x) {
+    return x * 2;
 }
 
-mixin MixinPyBufferWrappers;
+string baz(double d) {
+    import std.conv : to;
+    return d.to!string;
+}
+
+auto bar(long i, double d) {
+    import std.typecons;
+    return tuple(i, tuple(tuple(d, i)));
+}
+
+// wip: returning slice is partially supported (as memoryview)
+Slice!(double*, 1) sum(Slice!(double*, 2) x, Slice!(double*, 1) y) {
+    auto z = y.slice; // copy
+    foreach (xi; x) {
+        z[] += xi;
+    }
+    return z;
+}
+
+mixin defModule!(
+    "libtest_module", // module name
+    "this is D module", // module doc
+    // register d-func and doc under the module
+    [def!(foo, "this is foo"),
+     def!(baz, "this is baz"),
+     def!(bar, "this is bar"),
+     def!(sum, "this is sum")]);
 ```
 
-run this example by `$ make test-mir`.
+To create dynamic library, you also need to add `"targetType": "dynamicLibrary"` in [dub.json](test/dub.json).
 
 ## detail
 
-`@pybuffer` and `mixin MixinPyBufferWrappers;` will generate wrapper functions as follows:
+The mixin in the last line generates following for example.
 
 ``` d
-pragma(mangle, __traits(identifier, pybuffer_func1))
-extern(C) auto pybuffer_func1( ref Py_buffer a0 , ref Py_buffer a1 , double a2 ) {
-  import mir.ndslice.connect.cpython;
-  import std.stdio : writeln;
-  Slice!(double*, 2) _a0;
-  {
-    auto err = fromPythonBuffer( _a0 , a0 );
-    if (err != PythonBufferErrorCode.success) { writeln(err); return err; }
-  }
-  Slice!(double*, 1) _a1;
-  {
-    auto err = fromPythonBuffer( _a1 , a1 );
-    if (err != PythonBufferErrorCode.success) { writeln(err); return err; }
-  }
-  func1( _a0 , _a1 , a2 );
-  return PythonBufferErrorCode.success;
+extern (C):
+static PyModuleDef mod = {
+    PyModuleDef_HEAD_INIT,
+    "mod",                      // module name
+    "this is D language mod",   // module doc
+    -1,                         // size of per-interpreter state of the module,
+                                // or -1 if the module keeps state in global variables.
+};
+
+static methods = [
+    def!(foo, "this is foo"),
+    ...
+    PyMethodDef_SENTINEL
+    ];
+
+auto PyInit_libtest_module() {
+    import core.runtime : rt_init;
+    rt_init();
+    Py_AtExit(&rtAtExit);
+    mod.m_methods = methods.ptr;
+    return PyModule_Create(&mod);
 }
 ```
 
-you can see the actual generated codes by `lib.print_generated()` in python.
-`pybuffer.CDLL` calls `pybuffer_func1` instead of `func1` with PyBuffer arguments and error code handling.
-see [mir.ndslice.connect.cpython.PythonBufferErrorCode](http://docs.algorithm.dlang.io/latest/mir_ndslice_connect_cpython.html#.PythonBufferErrorCode) for error code definitions.
 
+## roadmap
 
-## known issues
-
-- `import pybuffer` without ` : pybuffer, MixinPyBufferWrappers` causes a empty generated string.
+- [DONE] support basic type argument and return: int, float, bool, str, tuple
+- [DONE] support numpy/ndslice argument
+- [TODO] support numpy/ndslice return (wip: only memoryview available)
+- [TODO] user-defined class/struct support
