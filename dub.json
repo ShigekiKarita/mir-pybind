@@ -1,12 +1,12 @@
 {
-	"name": "mir-pybuffer",
+	"name": "mir-pybind",
 	"authors": [
-		"karita"
+		"Shigeki Karita"
 	],
 	"dependencies": {
 		"mir-algorithm": "~>3.1.7"
 	},
-	"description": "mir-numpy connection example",
+	"description": "mir and python connection library",
 	"copyright": "Copyright © 2018, karita",
 	"license": "BSL-1.0"
 }

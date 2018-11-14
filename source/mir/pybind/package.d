@@ -1,11 +1,27 @@
-module wrapper;
+module mir.pybind;
+/** CODING GUIDE
 
-import pyobject;
+D or Python:
+
+When we can implement something both in D or Python, we do everything in D.
+D has less overhead than Python (the reason why we use D from Python).
+
+Error Handling:
+
+D function should raise exception for python by PyErr_SetString(PyObject* type, const char* message)
+The type can be PyExc_RuntimeError, PyExc_TypeError, etc
+see also https://docs.python.org/3/c-api/exceptions.html#standard-exceptions
+
+ */
+
+import mir.pybind.pyapi;
+
 import std.string : toStringz;
 import std.typecons : isTuple;
 import std.conv : to;
 import mir.ndslice : isSlice, SliceKind, Slice, Structure;
 import mir.ndslice.connect.cpython;
+
 
 auto toPyObject(double x) { return PyFloat_FromDouble(x); }
 auto toPyObject(long x) { return PyLong_FromLongLong(x); }
@@ -51,8 +67,6 @@ auto toPyObject(T)(T xs) if (isTuple!T) {
     return p;
 }
 
-extern(C):
-
 template PointerOf(T) {
     static if (isSlice!T)
         alias PointerOf = PyObject**;
@@ -61,6 +75,7 @@ template PointerOf(T) {
 }
 
 
+extern(C)
 PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args) {
     import std.stdio;
     import std.conv : to;
@@ -68,7 +83,7 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args) {
     import std.meta : staticMap;
     import std.typecons : Tuple;
     import std.string : toStringz, replace;
-    import typeformat; //  : formatTypes;
+    import mir.pybind.format : formatTypes;
 
     alias Ps = Parameters!dFunction;
     Tuple!Ps params;
@@ -133,8 +148,7 @@ enum def(alias dfunc, string doc = "", string name = __traits(identifier, dfunc)
     = PyMethodDef(name, &toPyFunction!dfunc, METH_VARARGS, doc);
 
 mixin template defModule(string modName, string modDoc, PyMethodDef[] defs) {
-    import pyobject;
-    import wrapper;
+    import mir.pybind.pyapi;
     extern (C):
     static PyModuleDef mod = {PyModuleDef_HEAD_INIT, modName, modDoc, -1};
     static methods = defs ~ [PyMethodDef_SENTINEL];
@@ -143,7 +157,6 @@ mixin template defModule(string modName, string modDoc, PyMethodDef[] defs) {
         "pragma(mangle, __traits(identifier, PyInit_" ~ modName ~ "))" ~
         "auto PyInit_" ~ modName ~ q{
             () {
-                import pyobject;
                 import core.runtime : rt_init;
                 rt_init();
                 Py_AtExit(&rtAtExit);

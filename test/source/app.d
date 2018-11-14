@@ -1,83 +1,63 @@
-import std.stdio;
-
 import mir.ndslice;
-import mir.ndslice.connect.cpython;
+import mir.pybind : def, defModule;
 
-import pybuffer : MixinPyBufferWrappers, pybuffer;
+double foo(long x) {
+    return x * 2;
+}
+
+string baz(double d) {
+    import std.conv : to;
+    return d.to!string;
+}
+
+auto bar(long i, double d) {
+    import std.typecons;
+    return tuple(i, tuple(tuple(d, i)));
+}
+
+// wip: returning slice is partially supported (as memoryview)
+Slice!(double*, 1) sum(Slice!(double*, 2) x, Slice!(double*, 1) y) {
+    auto z = y.slice; // copy
+    foreach (xi; x) {
+        z[] += xi;
+    }
+    return z;
+}
+
+mixin defModule!(
+    "libtest_module", // module name
+    "this is D module", // module doc
+    // register d-func and doc under the module
+    [def!(foo, "this is foo"),
+     def!(baz, "this is baz"),
+     def!(bar, "this is bar"),
+     def!(sum, "this is sum")]);
+
+
+
+/* this mixin generates following for example
 
 extern (C):
+static PyModuleDef mod = {
+    PyModuleDef_HEAD_INIT,
+    "mod",                      // module name
+    "this is D language mod",   // module doc
+    -1,                         // size of per-interpreter state of the module,
+                                // or -1 if the module keeps state in global variables.
+};
 
+static methods = [
+    def!(foo, "this is foo"),
+    ...
+    PyMethodDef_SENTINEL
+    ];
 
-// @nogc:
-void test_pybuffer(ref Py_buffer pybuf) {
-    writeln(pybuf);
-    printf("buf: %p\n", pybuf.buf);
-    assert(pybuf.buf != null);
-    printf("obj: %p\n", pybuf.obj);
-    assert(pybuf.obj != null);
-    printf("len: %ld\n", pybuf.len);
-    assert(pybuf.len == 6 * double.sizeof);
-    printf("itemsize: %ld\n", pybuf.itemsize);
-    assert(pybuf.itemsize == double.sizeof);
-
-    printf("readonly: %d\n", pybuf.readonly);
-    assert(!pybuf.readonly);
-    printf("ndim: %d\n", pybuf.ndim);
-    assert(pybuf.ndim == 2);
-    printf("format: %s\n", pybuf.format);
-    assert(pybuf.format[0] == 'd'); // ??
-
-    printf("shape: [%ld, %ld]\n", pybuf.shape[0], pybuf.shape[1]);
-    assert(pybuf.shape[0] == 2);
-    assert(pybuf.shape[1] == 3);
-    printf("strides: [%ld, %ld]\n", pybuf.strides[0], pybuf.strides[1]);
-    assert(pybuf.strides[0] == pybuf.shape[1] * double.sizeof);
-    assert(pybuf.strides[1] == double.sizeof);
-
-    auto d = cast(double*) pybuf.buf;
-    int acc = 0;
-    printf("buf: [\n");
-    for (int i = 0; i < pybuf.shape[0]; ++i) {
-        printf(" [ ");
-        for (int j = 0; j < pybuf.shape[1]; ++j) {
-            auto idx = (i * pybuf.strides[0] + j * pybuf.strides[1]) / pybuf.itemsize;
-            printf("%lf ", d[idx]);
-            assert(d[idx] == acc);
-            ++acc;
-        }
-        printf("]\n");
-    }
-    printf("]\n");
-
-    Slice!(double*, 2) mat = void;
-    auto err = fromPythonBuffer(mat, pybuf);
-    writeln(err);
-    assert(err == PythonBufferErrorCode.success);
-    printf("%lf\n", mat[0, 0]);
-    printf("%lf\n", mat[1, 0]);
-    mat[] = -1;
+auto PyInit_libtest_module() {
+    import core.runtime : rt_init;
+    rt_init();
+    Py_AtExit(&rtAtExit);
+    mod.m_methods = methods.ptr;
+    return PyModule_Create(&mod);
 }
 
-@pybuffer
-static void func1(Slice!(double*, 2) mat, Slice!(double*, 1) vec, double a, float f, bool b, long l, string s) {
-    writeln("func1");
-    mat[0][] += vec;
-    vec[] *= 2;
-    assert(a == 2.0);
-    assert(f == 3.0);
-    assert(b);
-    assert(l == 5);
-    assert(s == "six");
-}
-
-@pybuffer
-static void func2(Slice!(double*, 2) mat) {
-    string s;
-    s ~= "hello!";
-    writeln(s);
-
-    writeln(mat);
-}
-
-
-mixin MixinPyBufferWrappers;
+*/

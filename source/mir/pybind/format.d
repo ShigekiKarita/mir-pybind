@@ -1,9 +1,10 @@
-module typeformat;
+module mir.pybind.format;
+
+import mir.pybind.pyapi : PyObject;
 
 import std.traits;
 import std.typecons;
 import mir.ndslice : isSlice;
-import pyobject; //  : PyObject;
 
 template formatTypes(Ts...) {
     enum formatTypes = {

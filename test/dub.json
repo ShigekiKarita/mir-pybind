@@ -1,10 +1,10 @@
 {
-	"name": "mir-bp-test",
+	"name": "test_module",
 	"authors": [
 		"skarita"
 	],
 	"dependencies": {
-		"mir-pybuffer": { "path": ".." }
+		"mir-pybind": { "path": ".." }
 	},
     "targetType": "dynamicLibrary",
 	"description": "A minimal D application.",

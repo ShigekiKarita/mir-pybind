@@ -1,4 +1,4 @@
-module pyobject;
+module mir.pybind.pyapi;
 import core.stdc.config : c_long, c_ulong;
 
 // pragma(mangle, __traits(identifier, PyObject));
