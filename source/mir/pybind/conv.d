@@ -10,6 +10,7 @@ import deimos.python.Python;
 
 import mir.pybind.format : formatTypes;
 
+/// PythonBasicType is a type that can be converted into int/float/bool/str
 enum bool isPythonBasicType(T) = !(isTuple!T || formatTypes!T == "O");
 
 /// D type to PyObject conversion
@@ -122,6 +123,26 @@ template PointerOf(T)
         alias PointerOf = PyObject**;
 }
 
+/// PyObject to D object conversion for python basic types
+auto fromPyObject(T)(ref T x, PyObject* o) if (isPythonBasicType!T) { return ""; }
+
+/// PyObject to D object conversion for mir slice
+auto fromPyObject(T)(ref T x, PyObject* o) if (isSlice!T)
+{
+    bufferinfo buf;
+    if (PyObject_CheckReadBuffer(o) == -1) {
+        return "unable to read buffer";
+    }
+    PyObject_GetBuffer(o, cast(Py_buffer*) &buf, PyBuf_full);
+    scope(exit) PyBuffer_Release(cast(Py_buffer*) &buf);
+    auto err = fromPythonBuffer(x, buf);
+    if (err != PythonBufferErrorCode.success)
+    {
+        return "fail to execute mir.ndslice.connect.cpython.fromPythonBuffer (PythonBufferErrorCode: "
+            ~ err.to!string ~ ")";
+    }
+    return "";
+}
 
 /**
    D function to PyObject conversion
@@ -143,7 +164,11 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
 
     static foreach (i; 0 .. Ps.length)
     {
-        static if (isSlice!(Ps[i]))
+        static if (isPythonBasicType!(Ps[i]))
+        {
+            ptrs[i] = &params[i];
+        }
+        else
         {
             mixin(
                 q{
@@ -151,10 +176,6 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
                     ptrs[i] = &obj$;
                 }.replace("$", i.to!string));
 
-        }
-        else
-        {
-            ptrs[i] = &params[i];
         }
     }
     if (!PyArg_ParseTuple(args, formatTypes!(Ps).toStringz, ptrs.expand))
@@ -165,30 +186,18 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
     {
         static foreach (i; 0 .. Ps.length)
         {
-            static if (isSlice!(Ps[i]))
-            {
+            static if (!isPythonBasicType!(Ps[i])) {{
                 mixin(
                     q{
-                        bufferinfo buf$;
-                        if (PyObject_CheckReadBuffer(obj$) == -1) {
-                            PyErr_SetString(PyExc_RuntimeError,
-                                            "invalid array object at param $");
-                        }
-                        PyObject_GetBuffer(obj$, cast(Py_buffer*) &buf$, PyBuf_full);
+                        auto msg = params[i].fromPyObject(obj$);
+                        if (msg != "")
                         {
-                            auto err = fromPythonBuffer(params[$], buf$);
-                            if (err != PythonBufferErrorCode.success) {
-                                PyErr_SetString(PyExc_RuntimeError,
-                                                "incompatible array object at param $, expected type: " ~ Ps[i].stringof);
-                            }
+                            auto e = "incompatible array object, expected type: "
+                                ~ Ps[i].stringof ~ ", message: " ~ msg;
+                            PyErr_SetString(PyExc_RuntimeError, e.toStringz);
                         }
-                    }.replace("$", i.to!string)
-                    );
-            }
-            static if (isTuple!(Ps[i]))
-            {
-                static assert(false, "tuple argument is not implemented now");
-            }
+                    }.replace("$", i.to!string));
+                }}
         }
 
         alias R = ReturnType!dFunction;
@@ -199,13 +208,6 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
         }
         else
         {
-            static foreach (i; 0 .. Ps.length)
-            {
-                static if (isSlice!(Ps[i]))
-                {
-                    mixin(q{PyBuffer_Release(cast(Py_buffer*) &buf$);}.replace("$", i.to!string));
-                }
-            }
             return toPyObject(dFunction(params.expand));
         }
     }
