@@ -4,8 +4,20 @@
 		"Shigeki Karita"
 	],
 	"dependencies": {
-		"mir-algorithm": "~>3.1.7"
+		"mir-algorithm": "~>3.1.7",
+        "mir-pybind:deimos-python": "*"
 	},
+    "subPackages": [
+        {
+            "name": "deimos-python",
+            "targetType": "library",
+            "sourcePaths": ["pyd/infrastructure"],
+            "importPaths": ["pyd/infrastructure"],
+            "excludedSourceFiles": [
+                "pyd/infrastructure/{d,pyd,util,windows}/*"
+            ]
+        }
+    ],
     "versions": ["Python_2_4_Or_Later", "Python_2_5_Or_Later", "Python_2_6_Or_Later", "Python_2_7_Or_Later", "Python_3_0_Or_Later"],
 	"description": "mir and python connection library",
 	"copyright": "Copyright © 2018, karita",
