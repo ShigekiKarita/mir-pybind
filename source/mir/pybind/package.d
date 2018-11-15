@@ -17,6 +17,7 @@ private import deimos.python.Python : PyMethodDef, METH_VARARGS;
 private import mir.pybind.conv : toPyFunction;
 
 /// template to define python function (wrapper of PyMethodDef)
+/// TODO insert type signature and args in docstring automatically
 enum def(alias dfunc, string doc = "", string name = __traits(identifier, dfunc))
     = PyMethodDef(name, &toPyFunction!dfunc, METH_VARARGS, doc);
 

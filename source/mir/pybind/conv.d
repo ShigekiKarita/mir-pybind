@@ -13,12 +13,11 @@ import mir.ndslice.connect.cpython : toPythonBuffer, fromPythonBuffer, PythonBuf
 import deimos.python.Python;
 // FIXME: remove this line (need more version specification?)
 extern (C) PyObject* PyUnicode_FromStringAndSize(const(char*) u, Py_ssize_t len);
+extern (C) const(char*) PyUnicode_AsUTF8AndSize(PyObject *unicode, Py_ssize_t *size);
 extern (C) const(char*) PyUnicode_AsUTF8(PyObject *unicode);
 
 import mir.pybind.format : formatTypes;
 
-/// PythonBasicType is a type that can be converted into int/float/bool
-enum bool isPythonBasicType(T) = !(isTuple!T || formatTypes!T == "O" || formatTypes!T == "s");
 
 /// D type to PyObject conversion
 auto toPyObject(double x) { return PyFloat_FromDouble(x); }
@@ -88,7 +87,7 @@ template toNpyType(T)
 }
 
 /// mir.ndslice.Slice to PyObject conversion
-auto toPyObject(T, size_t n, SliceKind k)(Slice!(T*, n, k) x) if (isPythonBasicType!T)
+auto toPyObject(T, size_t n, SliceKind k)(Slice!(T*, n, k) x)
 {
     bufferinfo buf;
     Structure!n str;
@@ -118,57 +117,46 @@ auto toPyObject(T)(T xs) if (isTuple!T)
     return p;
 }
 
-template PointerOf(T)
-{
-    static if (isPythonBasicType!T)
-        alias PointerOf = T*;
-    else
-        alias PointerOf = PyObject**;
-}
-
-import std.typecons;
-
-auto deepExpand(Ts ...)(Ts ts)
-{
-    static if (isTuple!(typeof(ts[0]))) {
-        static if (ts.length == 1) return deepExpand(ts[0].expand);
-        else return tuple(deepExpand(ts[0].expand).expand, deepExpand(ts[1..$]).expand);
-    }
-    else
-    {
-        static if (ts.length == 1) return tuple(ts[0]);
-        else return tuple(ts[0], deepExpand(ts[1..$]).expand);
-    }
-}
-
-auto deepPtrs(Ts ...)(ref Ts ts)
-{
-    static if (isTuple!(typeof(ts[0]))) {
-        static if (ts.length == 1) return deepPtrs(ts[0].expand);
-        else return tuple(deepPtrs(ts[0].expand).expand, deepPtrs(ts[1..$]).expand);
-    }
-    else
-    {
-        static if (ts.length == 1) return tuple(&ts[0]);
-        else return tuple(&ts[0], deepPtrs(ts[1..$]).expand);
-    }
-}
-
-unittest {
-// static this() {
-    auto t = tuple(1, 2, tuple(3, tuple(tuple(4, 5), 6), 7));
-    auto p = t.deepPtrs;
-    t[1] = 222;
-    auto d = t.deepExpand;
-    assert(d == tuple(1, 222, 3, 4, 5, 6, 7));
-
-    static foreach (i; 0 .. t.length) {
-        assert(*p[i] == d[i]);
-    }
-}
-
 /// PyObject to D object conversion for python basic types
-auto fromPyObject(T)(ref T x, PyObject* o) if (isPythonBasicType!T) { return ""; }
+auto fromPyObject(ref long x, PyObject* o)
+{
+    x = PyLong_AsLongLong(o);
+    return "";
+}
+
+/// ditto
+auto fromPyObject(ref ulong x, PyObject* o)
+{
+    x = PyLong_AsUnsignedLongLong(o);
+    return "";
+}
+
+/// ditto
+auto fromPyObject(ref double x, PyObject* o)
+{
+    x = PyFloat_AsDouble(o);
+    return "";
+}
+
+/// ditto
+auto fromPyObject(ref bool x, PyObject* o)
+{
+    x = PyObject_IsTrue(o) == 1;
+    return "";
+}
+
+/// ditto
+auto fromPyObject(ref char[] x, PyObject* o)
+{
+    import std.string : fromStringz;
+    // TODO find better way
+    // FIXME need incref here?
+    Py_ssize_t len;
+    auto ptr = cast(char*) PyUnicode_AsUTF8AndSize(o, &len);
+    if (ptr == null) return "invalid UTF8 string";
+    x = ptr[0 .. len];
+    return "";
+}
 
 /// PyObject to D object conversion for mir slice
 auto fromPyObject(T)(ref T x, PyObject* o) if (isSlice!T)
@@ -210,13 +198,6 @@ auto fromPyObject(T)(ref T xs, PyObject* os) if (isTuple!T)
     return "";
 }
 
-template ParsedArg(T) {
-    static if (isPythonBasicType!T || isTuple!T)
-        alias ParsedArg = T;
-    else
-        alias ParsedArg = PyObject*;
-}
-
 /**
    D function to PyObject conversion
  */
@@ -227,37 +208,48 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
     import std.conv : to;
     import std.traits : Parameters, ReturnType;
     import std.meta : staticMap;
-    import std.typecons : Tuple;
+    import std.typecons : Tuple, tuple;
     import std.string : toStringz, replace;
     import mir.pybind.format : formatTypes;
 
     alias Ps = Parameters!dFunction;
     Tuple!Ps params;
-    alias ParsedArgs = staticMap!(ParsedArg, Ps);
-    ParsedArgs parsedArgs;
-    auto parsedPtrs = parsedArgs.deepPtrs;
 
-    if (!PyArg_ParseTuple(args, formatTypes!(Ps).toStringz, parsedPtrs.expand))
+    PyObject*[Ps.length] pyobjs;
+    mixin(
+        {
+            string fmt = "auto fmt = \"";
+            string tup = "auto pyrefs = tuple(";
+            foreach (i; 0 .. Ps.length) {
+                fmt ~= "O";
+                tup ~= "&pyobjs[" ~ i.to!string ~ "],";
+            }
+            return tup[0 .. $-1] ~ ");" ~ fmt ~ "\".toStringz;";
+        }());
+
+    // TODO typecheck error message (maybe pyrefs.length is shorter?)
+    // enum f = formatTypes!Ps;
+    // void*[f.count] _refs;
+    // if (!PyArg_ParseTuple(args, f.str.toStringz, null))
+    // {
+    //     return null; // parsing failure
+    // }
+
+    // extract PyObject* s from args
+    if (!PyArg_ParseTuple(args, fmt, pyrefs.expand))
     {
         return null; // parsing failure
     }
 
     static foreach (i; 0 .. Ps.length)
     {
-        static if (isPythonBasicType!(Ps[i]) || isTuple!(Ps[i]))
         {
-            params[i] = parsedArgs[i];
-        }
-        else
-        {
+            const msg = params[i].fromPyObject(pyobjs[i]);
+            if (msg != "")
             {
-                auto msg = params[i].fromPyObject(parsedArgs[i]);
-                if (msg != "")
-                {
-                    auto e = "incompatible array object, expected type: "
-                        ~ Ps[i].stringof ~ ", message: " ~ msg;
-                    PyErr_SetString(PyExc_RuntimeError, e.toStringz);
-                }
+                auto e = "incompatible object, expected type: "
+                    ~ Ps[i].stringof ~ ", message: " ~ msg;
+                PyErr_SetString(PyExc_RuntimeError, e.toStringz);
             }
         }
     }
