@@ -5,14 +5,14 @@ double foo(long x) {
     return x * 2;
 }
 
-string baz(double d) {
+string baz(double d) { // }, string s) {
     import std.conv : to;
-    return d.to!string;
+    return d.to!string; //  ~ s;
 }
 
-auto bar(long i, double d) {
-    import std.typecons;
-    return tuple(i, tuple(tuple(d, i)));
+import std.typecons;
+auto bar(long i, double d, Tuple!(bool, long) t) {
+    return tuple(i, tuple(tuple(d, i, t)));
 }
 
 // wip: returning slice is partially supported (as memoryview)

@@ -1,17 +1,24 @@
 module mir.pybind.conv;
 
+import std.stdio;
 import std.string : toStringz;
-import std.typecons : isTuple;
+import std.traits : staticMap;
+import std.typecons : isTuple, Tuple;
 import std.conv : to;
+import std.format : format;
 
 import mir.ndslice : isSlice, SliceKind, Slice, Structure;
 import mir.ndslice.connect.cpython : toPythonBuffer, fromPythonBuffer, PythonBufferErrorCode, PyBuf_indirect, PyBuf_format, PyBuf_writable, bufferinfo;
+
 import deimos.python.Python;
+// FIXME: remove this line (need more version specification?)
+extern (C) PyObject* PyUnicode_FromStringAndSize(const(char*) u, Py_ssize_t len);
+extern (C) const(char*) PyUnicode_AsUTF8(PyObject *unicode);
 
 import mir.pybind.format : formatTypes;
 
-/// PythonBasicType is a type that can be converted into int/float/bool/str
-enum bool isPythonBasicType(T) = !(isTuple!T || formatTypes!T == "O");
+/// PythonBasicType is a type that can be converted into int/float/bool
+enum bool isPythonBasicType(T) = !(isTuple!T || formatTypes!T == "O" || formatTypes!T == "s");
 
 /// D type to PyObject conversion
 auto toPyObject(double x) { return PyFloat_FromDouble(x); }
@@ -32,9 +39,6 @@ static if (!is(long == ptrdiff_t))
 
 /// ditto
 auto toPyObject(bool b) { return PyBool_FromLong(b ? 1 : 0); }
-
-// FIXME: remove this line (need more version specification?)
-extern (C) PyObject* PyUnicode_FromStringAndSize(const(char*) u, Py_ssize_t len);
 
 /// ditto
 auto toPyObject(string s) { return PyUnicode_FromStringAndSize(s.ptr, s.length); }
@@ -116,11 +120,51 @@ auto toPyObject(T)(T xs) if (isTuple!T)
 
 template PointerOf(T)
 {
-    import mir.pybind.format : formatTypes;
     static if (isPythonBasicType!T)
         alias PointerOf = T*;
     else
         alias PointerOf = PyObject**;
+}
+
+import std.typecons;
+
+auto deepExpand(Ts ...)(Ts ts)
+{
+    static if (isTuple!(typeof(ts[0]))) {
+        static if (ts.length == 1) return deepExpand(ts[0].expand);
+        else return tuple(deepExpand(ts[0].expand).expand, deepExpand(ts[1..$]).expand);
+    }
+    else
+    {
+        static if (ts.length == 1) return tuple(ts[0]);
+        else return tuple(ts[0], deepExpand(ts[1..$]).expand);
+    }
+}
+
+auto deepPtrs(Ts ...)(ref Ts ts)
+{
+    static if (isTuple!(typeof(ts[0]))) {
+        static if (ts.length == 1) return deepPtrs(ts[0].expand);
+        else return tuple(deepPtrs(ts[0].expand).expand, deepPtrs(ts[1..$]).expand);
+    }
+    else
+    {
+        static if (ts.length == 1) return tuple(&ts[0]);
+        else return tuple(&ts[0], deepPtrs(ts[1..$]).expand);
+    }
+}
+
+unittest {
+// static this() {
+    auto t = tuple(1, 2, tuple(3, tuple(tuple(4, 5), 6), 7));
+    auto p = t.deepPtrs;
+    t[1] = 222;
+    auto d = t.deepExpand;
+    assert(d == tuple(1, 222, 3, 4, 5, 6, 7));
+
+    static foreach (i; 0 .. t.length) {
+        assert(*p[i] == d[i]);
+    }
 }
 
 /// PyObject to D object conversion for python basic types
@@ -130,7 +174,8 @@ auto fromPyObject(T)(ref T x, PyObject* o) if (isPythonBasicType!T) { return "";
 auto fromPyObject(T)(ref T x, PyObject* o) if (isSlice!T)
 {
     bufferinfo buf;
-    if (PyObject_CheckReadBuffer(o) == -1) {
+    if (PyObject_CheckReadBuffer(o) == -1)
+    {
         return "unable to read buffer";
     }
     PyObject_GetBuffer(o, cast(Py_buffer*) &buf, PyBuf_full);
@@ -144,12 +189,41 @@ auto fromPyObject(T)(ref T x, PyObject* o) if (isSlice!T)
     return "";
 }
 
+/// PyObject to D object conversion for std.typecons.tuple
+auto fromPyObject(T)(ref T xs, PyObject* os) if (isTuple!T)
+{
+    import deimos.python.tupleobject;
+    if (!PyTuple_Check(os))
+    {
+        return "non-tuple python object is passed to std.typecons.Tuple argument";
+    }
+    if (PyTuple_Size(os) != xs.length)
+    {
+        return "lengths of tuples are not matched: python %s vs D %s".format(
+            PyTuple_Size(os), xs.length);
+    }
+    foreach (i, ref x; xs)
+    {
+        auto o = PyTuple_GetItem(os, i);
+        x.fromPyObject(Py_XINCREF(o));
+    }
+    return "";
+}
+
+template ParsedArg(T) {
+    static if (isPythonBasicType!T || isTuple!T)
+        alias ParsedArg = T;
+    else
+        alias ParsedArg = PyObject*;
+}
+
 /**
    D function to PyObject conversion
  */
 extern(C)
 PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
 {
+    import std.stdio;
     import std.conv : to;
     import std.traits : Parameters, ReturnType;
     import std.meta : staticMap;
@@ -159,57 +233,42 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
 
     alias Ps = Parameters!dFunction;
     Tuple!Ps params;
-    alias Ptrs = staticMap!(PointerOf, Ps);
-    Tuple!Ptrs ptrs;
+    alias ParsedArgs = staticMap!(ParsedArg, Ps);
+    ParsedArgs parsedArgs;
+    auto parsedPtrs = parsedArgs.deepPtrs;
+
+    if (!PyArg_ParseTuple(args, formatTypes!(Ps).toStringz, parsedPtrs.expand))
+    {
+        return null; // parsing failure
+    }
 
     static foreach (i; 0 .. Ps.length)
     {
-        static if (isPythonBasicType!(Ps[i]))
+        static if (isPythonBasicType!(Ps[i]) || isTuple!(Ps[i]))
         {
-            ptrs[i] = &params[i];
+            params[i] = parsedArgs[i];
         }
         else
         {
-            mixin(
-                q{
-                    PyObject* obj$;
-                    ptrs[i] = &obj$;
-                }.replace("$", i.to!string));
-
+            {
+                auto msg = params[i].fromPyObject(parsedArgs[i]);
+                if (msg != "")
+                {
+                    auto e = "incompatible array object, expected type: "
+                        ~ Ps[i].stringof ~ ", message: " ~ msg;
+                    PyErr_SetString(PyExc_RuntimeError, e.toStringz);
+                }
+            }
         }
     }
-    if (!PyArg_ParseTuple(args, formatTypes!(Ps).toStringz, ptrs.expand))
+
+    static if (is(ReturnType!dFunction == void))
     {
-        return null;
+        dFunction(params.expand);
+        return Py_None();
     }
     else
     {
-        static foreach (i; 0 .. Ps.length)
-        {
-            static if (!isPythonBasicType!(Ps[i])) {{
-                mixin(
-                    q{
-                        auto msg = params[i].fromPyObject(obj$);
-                        if (msg != "")
-                        {
-                            auto e = "incompatible array object, expected type: "
-                                ~ Ps[i].stringof ~ ", message: " ~ msg;
-                            PyErr_SetString(PyExc_RuntimeError, e.toStringz);
-                        }
-                    }.replace("$", i.to!string));
-                }}
-        }
-
-        alias R = ReturnType!dFunction;
-        static if (is(R == void))
-        {
-            dFunction(params.expand);
-            return newNone(); // TODO support return values
-        }
-        else
-        {
-            return toPyObject(dFunction(params.expand));
-        }
+        return toPyObject(dFunction(params.expand));
     }
-    assert(false);
 }
