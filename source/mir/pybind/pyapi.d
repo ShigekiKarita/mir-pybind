@@ -1,3 +1,4 @@
+deprecated("Use deimos.python instead. mir.pybind.pyapi will be removed in the next release.")
 module mir.pybind.pyapi;
 import core.stdc.config : c_long, c_ulong;
 
@@ -197,33 +198,6 @@ version (unittest) {} else {
         PyObject* PyArray_SimpleNew(int nd, npy_intp* dims, int typenum);
 
         /// https://github.com/numpy/numpy/blob/v1.15.4/numpy/core/include/numpy/ndarraytypes.h#L65-L89
-        enum NpyType : int {
-            npy_bool=0,
-            npy_byte, npy_ubyte,
-            npy_short, npy_ushort,
-            npy_int, npy_uint,
-            npy_long, npy_ulong,
-            npy_longlong, npy_ulonglong,
-            npy_float, npy_double, npy_longdouble,
-            npy_cfloat, npy_cdouble, npy_clongdouble,
-            npy_object=17,
-            npy_string, npy_unicode,
-            npy_void,
-            /*
-             * new 1.6 types appended, may be integrated
-             * into the above in 2.0.
-             */
-            npy_datetime, npy_timedelta, npy_half,
-
-            npy_ntypes,
-            npy_notype,
-            // npy_char npy_attr_deprecate("use npy_string"),
-            npy_userdef=256,  /* leave room for characters */
-
-            /* the number of types not including the new 1.6 types */
-            npy_ntypes_abi_compatible=21
-        };
-
 
         /// misc
         extern __gshared PyObject _Py_NoneStruct;

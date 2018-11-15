@@ -1,0 +1,3 @@
+[submodule "pyd"]
+	path = pyd
+	url = https://github.com/ariovistus/pyd

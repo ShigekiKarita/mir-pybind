@@ -1,7 +1,5 @@
 module mir.pybind.format;
 
-import mir.pybind.pyapi : PyObject;
-
 import std.traits;
 import std.typecons;
 import mir.ndslice : isSlice;
@@ -22,19 +20,14 @@ template formatTypes(Ts...) {
             else static if (isFloatingPoint!T) {
                 ret ~= "d";
             }
-            else static if (is(T == PyObject*)) {
-                ret ~= "O";
-            }
             else static if (isTuple!T) {
                 ret ~= "(";
                 ret ~= formatTypes!(T.Types);
                 ret ~= ")";
             }
-            else static if (isSlice!T) {
-                ret ~= "O";
-            }
             else {
-                static assert(false, "unknown type to format: " ~ T.stringof);
+                ret ~= "O";
+                // static assert(false, "unknown type to format: " ~ T.stringof);
             }
         }
         return ret;

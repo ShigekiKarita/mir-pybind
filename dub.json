@@ -6,6 +6,7 @@
 	"dependencies": {
 		"mir-algorithm": "~>3.1.7"
 	},
+    "versions": ["Python_2_4_Or_Later", "Python_2_5_Or_Later", "Python_2_6_Or_Later", "Python_2_7_Or_Later", "Python_3_0_Or_Later"],
 	"description": "mir and python connection library",
 	"copyright": "Copyright © 2018, karita",
 	"license": "BSL-1.0"
