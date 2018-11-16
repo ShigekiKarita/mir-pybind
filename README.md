@@ -13,18 +13,19 @@ All you need is importing D dynamic library. Wrong arguments will raise TypeErro
 
 ``` python
 import numpy
-import libtest_module # written in D
+import libtest_module
 
 assert libtest_module.__doc__ == "this is D module"
 assert libtest_module.foo(1) == 2.0
-assert libtest_module.baz(1.5) == "1.5"
+assert libtest_module.baz(1.5, "MB") == "1.5MB"
 
 x = numpy.array([[0, 1, 2], [3, 4, 5]]).astype(numpy.float64)
 y = numpy.array([0, 1, 2]).astype(numpy.float64)
-mem = libtest_module.sum(x, y)
-numpy.testing.assert_allclose(numpy.frombuffer(mem, dtype=numpy.float64), [3, 6, 9])
+mem = numpy.asarray(libtest_module.sum(x, y))
+numpy.testing.assert_allclose(mem, x + y)
 
-assert libtest_module.bar(1, 2.0) == (1, ((2.0, 1),))
+assert libtest_module.bar(1, 2.0, (True, y))  == (1, ((2.0, 1, True, 0.0),))
+
 print("TEST OK")
 ```
 
@@ -33,6 +34,7 @@ print("TEST OK")
 You need to implement funcitons and register them by `mir.pybind.defModule`.
 
 ``` d
+import std.stdio;
 import mir.ndslice;
 import mir.pybind : def, defModule;
 
@@ -40,21 +42,22 @@ double foo(long x) {
     return x * 2;
 }
 
-string baz(double d) {
+string baz(double d, char[] s) {
     import std.conv : to;
-    return d.to!string;
+    return d.to!string  ~ s.to!string;
 }
 
-auto bar(long i, double d) {
-    import std.typecons;
-    return tuple(i, tuple(tuple(d, i)));
+import std.typecons;
+auto bar(long i, double d, Tuple!(bool, Slice!(double*, 1)) t) {
+    writeln(t[1]);
+    return tuple(i, tuple(tuple(d, i, t[0], t[1][0])));
 }
 
-// wip: returning slice is partially supported (as memoryview)
-Slice!(double*, 1) sum(Slice!(double*, 2) x, Slice!(double*, 1) y) {
-    auto z = y.slice; // copy
-    foreach (xi; x) {
-        z[] += xi;
+// NOTE: returning slice is partially supported (need numpy.asarray in python)
+Slice!(double*, 2) sum(Slice!(double*, 2) x, Slice!(double*, 1) y) {
+    auto z = x.slice; // copy
+    foreach (zi; z) {
+        zi[] += y;
     }
     return z;
 }
@@ -63,7 +66,7 @@ mixin defModule!(
     "libtest_module", // module name
     "this is D module", // module doc
     // register d-func and doc under the module
-    [def!(foo, "this is foo"),
+    [def!(foo, typeof(foo).stringof),
      def!(baz, "this is baz"),
      def!(bar, "this is bar"),
      def!(sum, "this is sum")]);
@@ -105,5 +108,5 @@ auto PyInit_libtest_module() {
 
 - [DONE] support basic type argument and return: int, float, bool, str, tuple
 - [DONE] support numpy/ndslice argument
-- [TODO] support numpy/ndslice return (wip: only memoryview available)
+- [DONE] support numpy/ndslice return (NOTE: need numpy.asarray for returned values)
 - [TODO] user-defined class/struct support

@@ -17,11 +17,11 @@ auto bar(long i, double d, Tuple!(bool, Slice!(double*, 1)) t) {
     return tuple(i, tuple(tuple(d, i, t[0], t[1][0])));
 }
 
-// wip: returning slice is partially supported (as memoryview)
-Slice!(double*, 1) sum(Slice!(double*, 2) x, Slice!(double*, 1) y) {
-    auto z = y.slice; // copy
-    foreach (xi; x) {
-        z[] += xi;
+// NOTE: returning slice is partially supported (need numpy.asarray in python)
+Slice!(double*, 2) sum(Slice!(double*, 2) x, Slice!(double*, 1) y) {
+    auto z = x.slice; // copy
+    foreach (zi; z) {
+        zi[] += y;
     }
     return z;
 }

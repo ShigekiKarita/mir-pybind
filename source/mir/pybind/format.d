@@ -41,8 +41,9 @@ template formatTypes(Ts...) {
 }
 
 unittest {
+    struct PyObject;
     static assert(formatTypes!(string, bool, double, int, PyObject*).str == "spdLO");
     static assert(formatTypes!(Tuple!(bool, double).Types).str == "pd");
-    static assert(formatTypes!(string, Tuple!(bool, Tuple!(double, long)).str, int, PyObject*)
+    static assert(formatTypes!(string, Tuple!(bool, Tuple!(double, long)), int, PyObject*).str
                   == "s(p(dL))LO");
 }

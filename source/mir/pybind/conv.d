@@ -89,6 +89,7 @@ template toNpyType(T)
 /// mir.ndslice.Slice to PyObject conversion
 auto toPyObject(T, size_t n, SliceKind k)(Slice!(T*, n, k) x)
 {
+    // import mir.ndslice.connect.cpython : cannot_create_f_contiguous_buffer;
     bufferinfo buf;
     Structure!n str;
     auto err = toPythonBuffer(x, buf, PyBuf_full, str);
@@ -96,7 +97,7 @@ auto toPyObject(T, size_t n, SliceKind k)(Slice!(T*, n, k) x)
         PyErr_SetString(PyExc_RuntimeError,
                         "unable to convert Slice object into Py_buffer");
     }
-    return PyMemoryView_FromBuffer(cast(Py_buffer*) &buf);
+    return PyMemoryView_FromBuffer(cast(deimos.python.object.Py_buffer*) &buf);
     // FIXME use Array API
     // auto p = PyArray_SimpleNew(n, cast(npy_intp*) x.shape.ptr, toNpyType!T);
 }
