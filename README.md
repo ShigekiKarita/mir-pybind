@@ -110,3 +110,4 @@ auto PyInit_libtest_module() {
 - [DONE] support numpy/ndslice argument
 - [DONE] support numpy/ndslice return (NOTE: need numpy.asarray for returned values)
 - [TODO] user-defined class/struct support
+- [TODO] keyword args for functions

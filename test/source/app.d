@@ -1,6 +1,59 @@
 import std.stdio;
 import mir.ndslice;
 import mir.pybind : def, defModule;
+import deimos.python.Python; //  : PyMethodDef, METH_VARARGS;
+
+// https://docs.python.jp/3/extending/newtypes_tutorial.html
+struct Custom {
+    int number;
+
+    ref add(int n) {
+        number += n;
+        return this;
+    }
+}
+
+
+// TODO auto generate these wrappers of Custom
+struct PyTypeWrapper(T) {
+    struct PyStruct {
+        mixin PyObject_HEAD;
+        T dtype;
+        alias dtype this;
+    }
+
+    PyTypeObject pytype() {
+        PyTypeObject pytype;
+        Py_SET_TYPE(&pytype, &PyType_Type);
+        pytype.tp_basicsize = PyStruct.sizeof;
+        pytype.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE;
+        pytype.tp_methods = _methods.ptr;
+        pytype.tp_name = "rawexample.Derived";
+        pytype.tp_new = &PyType_GenericNew;
+        // TODO
+        // pytype.tp_base = &Base_type;
+        PyType_Ready(&pytype);
+        Py_INCREF(cast(PyObject*)&pytype);
+        // PyModule_AddObject(m, "Derived", cast(PyObject*)&pytype);
+        return pytype;
+    }
+
+    static PyMemberDef[] _members = [];
+
+    extern (C)
+    static PyObject* _add(PyObject* self, PyObject* args) {
+        return self;
+    }
+
+    static PyMethodDef[] _methods = [
+        {"name", &_add, METH_VARARGS, "add int to CustomObject.number"},
+        {null} // sentinel
+        ];
+}
+
+alias PyCustom = PyTypeWrapper!Custom;
+// static PyTypeCustom = pyTypeOf!Custom();
+
 
 double foo(long x) {
     return x * 2;

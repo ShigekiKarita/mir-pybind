@@ -228,6 +228,8 @@ PyObject* toPyFunction(alias dFunction)(PyObject* mod, PyObject* args)
             return tup[0 .. $-1] ~ ");" ~ fmt ~ "\".toStringz;";
         }());
 
+    // TODO keyword args
+
     // TODO typecheck error message (maybe pyrefs.length is shorter?)
     // enum f = formatTypes!Ps;
     // void*[f.count] _refs;
