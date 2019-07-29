@@ -38,8 +38,8 @@ mixin template defModule(string modName, string modDoc, PyMethodDef[] defs)
         rt_term();
     }
 
-    static PyModuleDef mod = {PyModuleDef_HEAD_INIT, m_name: modName, m_doc: modDoc, m_size: -1};
-    static methods = defs ~ [PyMethodDef_SENTINEL];
+    extern(D) static PyModuleDef mod = {PyModuleDef_HEAD_INIT, m_name: modName, m_doc: modDoc, m_size: -1};
+    extern(D) static methods = defs ~ [PyMethodDef_SENTINEL];
 
     mixin(
         q{
