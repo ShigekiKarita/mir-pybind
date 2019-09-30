@@ -32,11 +32,12 @@ mixin template defModule(string modName, string modDoc, PyMethodDef[] defs)
 
     enum PyMethodDef PyMethodDef_SENTINEL = {null, null, 0, null};
 
-    void rtAtExit()
+    alias exitFunc = extern(C) void function();
+    enum exitFunc rtAtExit = ()
     {
         import core.runtime : rt_term;
         rt_term();
-    }
+    };
 
     extern(D) static PyModuleDef mod = {PyModuleDef_HEAD_INIT, m_name: modName, m_doc: modDoc, m_size: -1};
     extern(D) static methods = defs ~ [PyMethodDef_SENTINEL];
@@ -49,7 +50,7 @@ mixin template defModule(string modName, string modDoc, PyMethodDef[] defs)
                 import deimos.python.Python : Py_AtExit, PyModule_Create;
                 import core.runtime : rt_init;
                 rt_init();
-                Py_AtExit(&rtAtExit);
+                Py_AtExit(rtAtExit);
                 mod.m_methods = methods.ptr;
                 // TODO import_array(); // enable numpy API
                 return PyModule_Create(&mod);
